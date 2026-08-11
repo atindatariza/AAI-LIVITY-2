@@ -55,8 +55,8 @@ def extract_dar_gemini(image):
     Only return valid JSON array with 1 object, no other text.
     Example: [{"STORE NAME": "MDC AYALA MALLS", "LIVITY 850G": "8", "AGELIVITY 400G": "0", "GENDER": "F", "18-30": "/,1", "31-49": "/,1", "50 & ABOVE": "/,1", "WHAT CURRENT BRAND DID YOU USED?": "BEAR BRAND ADULT", "REASON FOR NOT PURCHASE": "PRICE EXPENSIVE"}]"""
     
-    # Active Gemini models list
-    models_to_try = ["Gemini 3.5 Flash", "Gemini 3.5 Flash-Lite", "Gemini 3.6 Flash"]
+    # Valid Gemini API model identifiers
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
     response = None
     last_error = None
 

@@ -37,9 +37,12 @@ def get_gsheet_client():
 
 
 def safe_generate_content(model_name, img, prompt):
-    """Generate content using the specified Gemini model."""
+    """Generate content forcing pure JSON output."""
     model = genai.GenerativeModel(model_name)
-    return model.generate_content([prompt, img])
+    generation_config = genai.GenerationConfig(
+        response_mime_type="application/json"
+    )
+    return model.generate_content([prompt, img], generation_config=generation_config)
 
 
 def extract_dar_gemini(image):
@@ -90,12 +93,23 @@ def extract_dar_gemini(image):
 
     json_text = response.text.strip()
     
-    # Clean markdown code block wraps
+    # Clean markdown code block wraps if present
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", json_text, re.DOTALL)
     if match:
         json_text = match.group(1).strip()
 
-    return json.loads(json_text)
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError:
+        # Robust fallback: extract embedded array/object via regex if extra text surrounds it
+        json_match = re.search(r"\[\s*\{.*\}\s*\]|\{.*\}", json_text, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(0))
+                return parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                pass
+        raise Exception(f"AI response was not valid JSON:\n{json_text}")
 
 
 # Initialize session state

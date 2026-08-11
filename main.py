@@ -56,7 +56,7 @@ def extract_dar_gemini(image):
     Example: [{"STORE NAME": "MDC AYALA MALLS", "LIVITY 850G": "8", "AGELIVITY 400G": "0", "GENDER": "F", "18-30": "/,1", "31-49": "/,1", "50 & ABOVE": "/,1", "WHAT CURRENT BRAND DID YOU USED?": "BEAR BRAND ADULT", "REASON FOR NOT PURCHASE": "PRICE EXPENSIVE"}]"""
     
     # Valid Gemini API model identifiers
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]
     response = None
     last_error = None
 

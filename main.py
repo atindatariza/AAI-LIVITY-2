@@ -43,7 +43,7 @@ def safe_generate_content(model_name, img, prompt):
 
 
 def extract_dar_gemini(image):
-    """Extract survey form data using Gemini with model fallback and 429 quota handling."""
+    """Extract survey form data using Gemini with fallback and 429 quota handling."""
     prompt = """
     Extract data from this survey form into a JSON list.
     For page 1 "STORE NAME" section upto "REASON FOR NOT PURCHASE" section:
@@ -55,8 +55,21 @@ def extract_dar_gemini(image):
     Only return valid JSON array with 1 object, no other text.
     Example: [{"STORE NAME": "MDC AYALA MALLS", "LIVITY 850G": "8", "AGELIVITY 400G": "0", "GENDER": "F", "18-30": "/,1", "31-49": "/,1", "50 & ABOVE": "/,1", "WHAT CURRENT BRAND DID YOU USED?": "BEAR BRAND ADULT", "REASON FOR NOT PURCHASE": "PRICE EXPENSIVE"}]"""
     
-    # Valid Gemini API model identifiers
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]
+    # 1. First preference: exact, known standard model strings
+    preferred_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    
+    # 2. Dynamic backup: query all active models supported by your API key
+    try:
+        available_models = [
+            m.name for m in genai.list_models()
+            if "generateContent" in m.supported_generation_methods
+        ]
+    except Exception:
+        available_models = []
+
+    # Merge while preserving preferred order and deduplicating
+    models_to_try = preferred_models + [m for m in available_models if m not in preferred_models]
+
     response = None
     last_error = None
 

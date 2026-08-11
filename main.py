@@ -42,7 +42,7 @@ def safe_generate_content(model_name, img, prompt):
     return model.generate_content([prompt, img])
 
 
-def extract_encoding_gemini(image):
+def extract_dar_gemini(image):
     """Extract survey form data using Gemini with model fallback and 429 quota handling."""
     prompt = """
     Extract data from this survey form into a JSON list.

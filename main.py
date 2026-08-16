@@ -28,8 +28,8 @@ SHEET_ID = "1vCLLfhNHj-SV5r5O9Ntq0kJp9K6htRJomelyIN4CnkI"
 def get_gsheet_client():
     """Connect to Google Sheets using service account credentials."""
     scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "[googleapis.com](https://www.googleapis.com/auth/spreadsheets)",
+        "[googleapis.com](https://www.googleapis.com/auth/drive)"
     ]
     service_account_info = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
@@ -46,22 +46,47 @@ def safe_generate_content(model_name, img, prompt):
 
 
 def extract_dar_gemini(image):
-    """Extract survey form data using Gemini with fallback and 429 quota handling."""
+    """Extract survey form data using Gemini with complete row & column mappings."""
+    
     prompt = """
-    Extract data from this survey form into a JSON list.
-    For page 1 "STORE NAME" section upto "REASON FOR NOT PURCHASE" section:
-    1. Get "STORE NAME" at the second column on the left if filled out , extract the handwritten text.
-    2. For each column, return the hand written/checked answer. If none, return "".
-    3. For "WHAT CURRENT BRAND DID YOU USED" upto "REASON FOR NOT PURCHASED" extract the word, letter or number.
-    Return keys like: "STORE NAME", "LIVITY 850G", "LIVITY 400G", "GENDER", "18-30", "31-49", "50 & ABOVE", "PURCHASE OF ESSENTIAL ITEMS", "CUSTOMER IS CANVASSING ONLY", "PURCHASE OF MEDICINE", "OTHERS", "WHAT CURRENT BRAND DID YOU USED", "SWITCH", "UPGRADE", "TOP UP", "LIVITY USER", "YES", "NO", "LIVITY 850G", "LIVITY 400G", "YES", "NO", "REASON FOR NOT PURCHASE", etc.
-    For handwritten parts in section 1, use "STORE NAME", "WHAT CURRENT BRAND DID YOU USED", "REASON FOR NOT PURCHASE" for text.
-    Only return valid JSON array with 1 object, no other text.
-    Example: [{"STORE NAME": "MDC AYALA MALLS", "LIVITY 850G": "8", "AGELIVITY 400G": "0", "GENDER": "F", "18-30": "/,1", "31-49": "/,1", "50 & ABOVE": "/,1", "WHAT CURRENT BRAND DID YOU USED?": "BEAR BRAND ADULT", "REASON FOR NOT PURCHASE": "PRICE EXPENSIVE"}]"""
+    You are an expert OCR system. Extract ALL filled table rows (from line 1 down to the last filled row) from this Daily Activity Report (DAR) image into a JSON list of objects.
+
+    For EVERY row with written data, map every column explicitly using these exact unique JSON keys:
     
-    # 1. First preference: exact, known standard model strings
-    preferred_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    - "NO": Line number (e.g. "1", "2", "3")
+    - "STORE_NAME": Handwritten store name (e.g., "MDC ABAD SANTOS")
+    - "INV_LIVITY_850G": Beginning Inventory Livity 850g (e.g. "1")
+    - "INV_LIVITY_400G": Beginning Inventory Livity 400g (e.g. "1")
+    - "GENDER": Customer Gender ("F" or "M")
+    - "AGE_18_30": Mark under 18-30 bracket ("1" if marked, else "")
+    - "AGE_31_49": Mark under 31-49 bracket ("1" if marked, else "")
+    - "AGE_50_ABOVE": Mark under 50 & ABOVE bracket ("1" if marked, else "")
+    - "REASON_PURCHASE_ESSENTIAL": Mark under Reason for Visiting -> Purchase Essential Items ("1" if marked, else "")
+    - "REASON_CANVASSING": Mark under Reason for Visiting -> Customer Canvassing Only ("1" if marked, else "")
+    - "REASON_PURCHASE_MEDICINE": Mark under Reason for Visiting -> Purchase Medicine ("1" if marked, else "")
+    - "REASON_OTHERS": Mark/text under Reason for Visiting -> Others ("1" or text if marked, else "")
+    - "CURRENT_BRAND_USED": Text under "WHAT CURRENT BRAND DID YOU USED?" (e.g. "MEDICINE", "ESSENTIAL", "LIVITY", "ENSURE", "GLUCERNA")
+    - "CATEGORY_SWITCH": Mark under Category -> Switch ("1" if marked, else "")
+    - "CATEGORY_UPGRADE": Mark under Category -> Upgrade ("1" if marked, else "")
+    - "CATEGORY_TOP_UP": Mark under Category -> Top-Up ("1" if marked, else "")
+    - "CATEGORY_LIVITY_USER": Mark under Category -> Livity User ("1" if marked, else "")
+    - "PURCHASE_YES": Mark under Purchase -> YES ("1" if marked, else "")
+    - "PURCHASE_NO": Mark under Purchase -> NO ("1" if marked, else "")
+    - "PURCHASE_SKU_850G": Mark under What SKU Did Customer Purchase? -> Livity 850g ("1" if marked, else "")
+    - "PURCHASE_SKU_400G": Mark under What SKU Did Customer Purchase? -> Livity 400g ("1" if marked, else "")
+    - "SAMPLES_RECEIVED_YES": Mark under Did Customer Received Samples? -> YES ("1" if marked, else "")
+    - "SAMPLES_RECEIVED_NO": Mark under Did Customer Received Samples? -> NO ("1" if marked, else "")
+    - "REASON_FOR_NOT_PURCHASE": Text under "REASON FOR NOT PURCHASE" (e.g., "NO BUDGET", "MAY DIABETES", "MAY MAINTENANCE", "MAY STOCK PA DAW", etc.)
+
+    RULES:
+    1. Scan EVERY row that contains entries (Rows 1 to 10 or more).
+    2. Do NOT stop after row 1.
+    3. If a cell is empty or unmarked, set its value to "".
+    4. Return ONLY a valid JSON array of objects. Do not include markdown formatting or extra text.
+    """
+
+    preferred_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     
-    # 2. Dynamic backup: query all active models supported by your API key
     try:
         available_models = [
             m.name for m in genai.list_models()
@@ -70,7 +95,6 @@ def extract_dar_gemini(image):
     except Exception:
         available_models = []
 
-    # Merge while preserving preferred order and deduplicating
     models_to_try = preferred_models + [m for m in available_models if m not in preferred_models]
 
     response = None
@@ -79,7 +103,7 @@ def extract_dar_gemini(image):
     for model_name in models_to_try:
         try:
             response = safe_generate_content(model_name, image, prompt)
-            break  # Success! Exit loop
+            break
         except Exception as e:
             last_error = e
             err_msg = str(e)
@@ -93,7 +117,6 @@ def extract_dar_gemini(image):
 
     json_text = response.text.strip()
     
-    # Clean markdown code block wraps if present
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", json_text, re.DOTALL)
     if match:
         json_text = match.group(1).strip()
@@ -101,7 +124,6 @@ def extract_dar_gemini(image):
     try:
         return json.loads(json_text)
     except json.JSONDecodeError:
-        # Robust fallback: extract embedded array/object via regex if extra text surrounds it
         json_match = re.search(r"\[\s*\{.*\}\s*\]|\{.*\}", json_text, re.DOTALL)
         if json_match:
             try:
@@ -123,21 +145,21 @@ if uploaded_file:
     st.image(image, caption="Ready to scan", use_container_width=True)
 
     if st.button("🔍 Run AI Scan", type="primary"):
-        with st.spinner('Gemini AI is reading... ~3-5 seconds'):
+        with st.spinner('Gemini AI is reading all rows and columns... ~3-5 seconds'):
             try:
                 table_data = extract_dar_gemini(image)
                 if table_data:
-                    st.success("✅ Extracted dar data!")
+                    st.success("✅ Extracted DAR data!")
                     st.session_state.df = pd.DataFrame(table_data)
                     st.rerun()
                 else:
-                    st.warning("Walang na-detect na data. Try mo mas malinaw na picture.")
+                    st.warning("No data detected. Try a clearer picture.")
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
 # Show editor + sync controls if data exists
 if st.session_state.df is not None:
-    st.subheader("📋 Verify Data - Edit mo kung may mali")
+    st.subheader("📋 Verify Data - Edit as needed")
     
     edited_df = st.data_editor(
         st.session_state.df,
@@ -165,7 +187,6 @@ if st.session_state.df is not None:
                     client = get_gsheet_client()
                     sheet = client.open_by_key(SHEET_ID).sheet1
                     
-                    # Convert DataFrame to clean strings/lists for gspread
                     df_to_sync = st.session_state.df.fillna("")
                     headers = df_to_sync.columns.tolist()
                     rows = df_to_sync.astype(str).values.tolist()
@@ -173,18 +194,16 @@ if st.session_state.df is not None:
                     existing_records = sheet.get_all_values()
                     
                     if len(existing_records) == 0:
-                        # Append both header and rows if spreadsheet is empty
                         sheet.append_rows([headers] + rows, value_input_option='USER_ENTERED')
                     else:
-                        # Append only new data rows if headers already exist
                         sheet.append_rows(rows, value_input_option='USER_ENTERED')
 
-                    st.success(f"✅ {len(rows)} row(s) synced sa Google Sheets!")
+                    st.success(f"✅ {len(rows)} row(s) synced to Google Sheets!")
                     st.balloons()
             except Exception as e:
                 st.error(f"Sync failed: {str(e)}")
                 st.code(f"Error details: {repr(e)}")
-                st.info("Check: 1. Naka-share ba sheet sa service account? 2. Tama ba secrets?")
+                st.info("Check: 1. Is the sheet shared with the service account? 2. Are credentials correct?")
 else:
-    st.info("👆 Upload a dar photo to start")
-    st.warning("⚠️ REVIEW and EDIT kung may MALI")
+    st.info("👆 Upload a DAR photo to start")
+    st.warning("⚠️ REVIEW and EDIT if there are errors")

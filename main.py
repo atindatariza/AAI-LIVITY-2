@@ -28,11 +28,19 @@ SHEET_ID = "1vCLLfhNHj-SV5r5O9Ntq0kJp9K6htRJomelyIN4CnkI"
 def get_gsheet_client():
     """Connect to Google Sheets using service account credentials."""
     scopes = [
-        "[googleapis.com](https://www.googleapis.com/auth/spreadsheets)",
-        "[googleapis.com](https://www.googleapis.com/auth/drive)"
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
     ]
     service_account_info = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+
+    # Fix private key formatting if newlines were escaped in Streamlit secrets
+    if "private_key" in service_account_info:
+        service_account_info["private_key"] = service_account_info["private_key"].replace("\\n", "\n")
+
+    creds = Credentials.from_service_account_info(
+        service_account_info,
+        scopes=scopes
+    )
     return gspread.authorize(creds)
 
 
@@ -88,8 +96,9 @@ def extract_dar_gemini(image):
     preferred_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     
     try:
+        # Strip "models/" prefix if returned by list_models()
         available_models = [
-            m.name for m in genai.list_models()
+            m.name.replace("models/", "") for m in genai.list_models()
             if "generateContent" in m.supported_generation_methods
         ]
     except Exception:

@@ -96,7 +96,6 @@ def extract_dar_gemini(image):
     preferred_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     
     try:
-        # Strip "models/" prefix if returned by list_models()
         available_models = [
             m.name.replace("models/", "") for m in genai.list_models()
             if "generateContent" in m.supported_generation_methods
@@ -200,14 +199,28 @@ if st.session_state.df is not None:
                     headers = df_to_sync.columns.tolist()
                     rows = df_to_sync.astype(str).values.tolist()
 
+                    # Find actual occupied rows (ignoring trailing empty formatted rows)
                     existing_records = sheet.get_all_values()
                     
-                    if len(existing_records) == 0:
-                        sheet.append_rows([headers] + rows, value_input_option='USER_ENTERED')
-                    else:
-                        sheet.append_rows(rows, value_input_option='USER_ENTERED')
+                    # Determine true last non-empty row
+                    last_occupied_row = 0
+                    for idx, row in enumerate(existing_records, start=1):
+                        if any(cell.strip() for cell in row):
+                            last_occupied_row = idx
 
-                    st.success(f"✅ {len(rows)} row(s) synced to Google Sheets!")
+                    if last_occupied_row == 0:
+                        # Blank sheet: write headers + data starting at A1
+                        payload = [headers] + rows
+                        start_row = 1
+                    else:
+                        # Existing data: write only rows directly under the last populated row
+                        payload = rows
+                        start_row = last_occupied_row + 1
+
+                    range_to_update = f"A{start_row}"
+                    sheet.update(range_name=range_to_update, values=payload, value_input_option='USER_ENTERED')
+
+                    st.success(f"✅ {len(rows)} row(s) synced starting at row {start_row}!")
                     st.balloons()
             except Exception as e:
                 st.error(f"Sync failed: {str(e)}")
